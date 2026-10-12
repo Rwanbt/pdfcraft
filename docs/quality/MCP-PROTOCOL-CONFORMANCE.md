@@ -12,7 +12,7 @@ The line-oriented MCP handler had already implemented JSON-RPC 2.0 replies, erro
 `crates/automation/tests/mcp_protocol.rs` exercises, without a PDF or network dependency:
 
 - Wrong/missing JSON-RPC version (including a request disguised as a notification) returns `-32600`.
-- Invalid identifiers (boolean, list, map, fractional number) return `-32600` with null reply identifier.
+- Invalid identifiers (boolean, list, map); fractional numbers remain valid but are discouraged by JSON-RPC 2.0 return `-32600` with null reply identifier.
 - Missing/non-string `method` returns `-32600` even without a request identifier.
 - Legal integer, string and null identifiers remain unchanged; valid notifications have no response; unknown methods remain `-32601`.
 - A multi-message stdio stream recovers after malformed JSON and invalid envelopes without losing subsequent requests.

@@ -35,7 +35,7 @@ fn wrong_version_never_executes_a_request_or_becomes_a_notification() {
 #[test]
 fn invalid_ids_are_rejected_with_null_response_ids() {
     let mut server = McpServer::new(Automation::new());
-    for id in [json!(true), json!(false), json!([]), json!({}), json!(1.5)] {
+    for id in [json!(true), json!(false), json!([]), json!({})] {
         invalid(send(&mut server, json!({ "jsonrpc": "2.0", "id": id, "method": "ping" })), Value::Null);
     }
 }
@@ -51,7 +51,7 @@ fn methodless_requests_are_errors_even_without_an_id() {
 #[test]
 fn valid_ids_notifications_and_unknown_methods_keep_normal_behavior() {
     let mut server = McpServer::new(Automation::new());
-    for id in [json!(0), json!(7), json!("request-string"), Value::Null] {
+    for id in [json!(0), json!(7), json!(1.5), json!("request-string"), Value::Null] {
         let reply = send(&mut server, json!({ "jsonrpc": "2.0", "id": id, "method": "ping" })).expect("request reply");
         assert_eq!(reply["id"], id);
         assert_eq!(reply["result"], json!({}));

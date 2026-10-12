@@ -116,9 +116,9 @@ impl McpServer {
         }
         let id = obj.get("id").cloned();
         if let Some(ref id) = id
-            && !(id.is_null() || id.is_string() || id.as_i64().is_some() || id.as_u64().is_some())
+            && !(id.is_null() || id.is_string() || id.is_number())
         {
-            return Some(error(Value::Null, INVALID_REQUEST, "id must be a string, integer or null"));
+            return Some(error(Value::Null, INVALID_REQUEST, "id must be a string, number or null"));
         }
         let Some(method) = obj.get("method").and_then(Value::as_str) else {
             // Only *valid* method calls with no id are notifications.
