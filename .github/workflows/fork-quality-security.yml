@@ -57,8 +57,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p coverage
-          cargo llvm-cov --locked -p pdfcraft-crypt -p pdfcraft-cos --lcov --output-path coverage/crypt-cos.lcov
-          cargo llvm-cov report --summary-only
+          # Only crypt and COS are exercised by this job. Otherwise LLVM also
+          # reports dependent filter source with zero hits, misrepresenting this scope.
+          cargo llvm-cov --locked -p pdfcraft-crypt -p pdfcraft-cos --ignore-filename-regex '/crates/filters/' --lcov --output-path coverage/crypt-cos.lcov
+          cargo llvm-cov report --ignore-filename-regex '/crates/filters/' --summary-only
 
       - name: Save independent coverage evidence
         if: always()
