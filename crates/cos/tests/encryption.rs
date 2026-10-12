@@ -256,7 +256,28 @@ fn qpdf_agrees() {
                 assert!(out.status.success() && text.contains(&format!("Supplied password is {expect}")), "{alg:?}/{object_streams}/{pw}: {text}");
                 let check = std::process::Command::new("qpdf").arg(format!("--password={pw}")).arg("--check").arg(&path).output().unwrap();
                 assert!(check.status.success(), "{alg:?}/{object_streams}/{pw}: {}", String::from_utf8_lossy(&check.stdout));
+
+                // --check alone does not prove that document content decrypts correctly.
+                // Ask the independent reader to decrypt and emit uncompressed page streams.
+                let decoded_path = dir.join(format!("{alg:?}-{object_streams}-{pw}-clear.pdf"));
+                let decrypted = std::process::Command::new("qpdf")
+                    .arg(format!("--password={pw}"))
+                    .arg("--decrypt")
+                    .arg("--stream-data=uncompress")
+                    .arg(&path)
+                    .arg(&decoded_path)
+                    .output()
+                    .unwrap();
+                assert!(decrypted.status.success(), "{alg:?}/{object_streams}/{pw}: {}", String::from_utf8_lossy(&decrypted.stderr));
+                let decoded = std::fs::read(&decoded_path).unwrap();
+                assert!(
+                    decoded.windows(SECRET.len()).any(|window| window == SECRET.as_bytes()),
+                    "{alg:?}/{object_streams}/{pw}: independent decryption lost the content stream"
+                );
+                std::fs::remove_file(decoded_path).unwrap();
             }
+            let wrong = std::process::Command::new("qpdf").arg("--password=not-the-password").arg("--check").arg(&path).output().unwrap();
+            assert!(!wrong.status.success(), "{alg:?}/{object_streams}: a wrong password must not decrypt");
         }
     }
     let _ = std::fs::remove_dir_all(dir);
