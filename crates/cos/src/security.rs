@@ -68,12 +68,14 @@ pub(crate) fn encrypt_dict(doc: &Document, d: &Dict) -> EncryptDict {
 
 /// The crypt filter a stream names in its `/Filter` chain (`/Crypt` + `/DecodeParms /Name`).
 fn named_crypt_filter(dict: &Dict) -> Option<Vec<u8>> {
-    let names: Vec<&[u8]> = match dict.get(b"Filter") {
-        Some(Object::Name(n)) => vec![n],
-        Some(Object::Array(a)) => a.iter().filter_map(Object::as_name).collect(),
+    // Preserve the *original* /Filter array index when pairing with /DecodeParms.
+    // Dropping malformed non-name entries shifts later parameters to the wrong
+    // filter; in particular it can silently turn a named /Crypt filter into Identity.
+    let i = match dict.get(b"Filter") {
+        Some(Object::Name(n)) if n == b"Crypt" => 0,
+        Some(Object::Array(filters)) => filters.iter().position(|f| f.as_name() == Some(&b"Crypt"[..]))?,
         _ => return None,
     };
-    let i = names.iter().position(|n| *n == b"Crypt")?;
     let parms = match dict.get(b"DecodeParms") {
         Some(Object::Dict(d)) if i == 0 => Some(d.clone()),
         Some(Object::Array(a)) => a.get(i).and_then(|p| p.as_dict().cloned()),
@@ -131,5 +133,58 @@ fn walk(o: &Object, strings: &dyn Fn(&PdfString) -> PdfString, h: &SecurityHandl
             Object::Stream(Stream { dict, raw: raw.into() })
         }
         other => other.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn named_params(name: &str) -> Object {
+        let mut parms = Dict::new();
+        parms.set(b"Name".to_vec(), Object::name(name));
+        Object::Dict(parms)
+    }
+
+    #[test]
+    fn named_crypt_filter_preserves_original_filter_array_offsets() {
+        let mut d = Dict::new();
+        // An invalid entry is ignored as a filter, but must not shift the
+        // /DecodeParms array. Previously the /Crypt filter read index 0.
+        d.set(b"Filter".to_vec(), Object::Array(vec![Object::Null, Object::name("Crypt")]));
+        d.set(b"DecodeParms".to_vec(), Object::Array(vec![Object::Null, named_params("StdCF")]));
+        assert_eq!(named_crypt_filter(&d), Some(b"StdCF".to_vec()));
+
+        // A valid preceding filter also keeps the second entry's parameters.
+        d.set(b"Filter".to_vec(), Object::Array(vec![Object::name("FlateDecode"), Object::name("Crypt")]));
+        assert_eq!(named_crypt_filter(&d), Some(b"StdCF".to_vec()));
+    }
+
+    #[test]
+    fn named_crypt_filter_supports_scalar_and_missing_parameters() {
+        let mut d = Dict::new();
+        d.set(b"Filter".to_vec(), Object::name("Crypt"));
+        d.set(b"DecodeParms".to_vec(), named_params("StdCF"));
+        assert_eq!(named_crypt_filter(&d), Some(b"StdCF".to_vec()));
+
+        d.set(b"DecodeParms".to_vec(), Object::Null);
+        assert_eq!(named_crypt_filter(&d), Some(b"Identity".to_vec()));
+
+        d.set(b"Filter".to_vec(), Object::name("FlateDecode"));
+        assert_eq!(named_crypt_filter(&d), None);
+    }
+
+    #[test]
+    fn signature_detection_covers_timestamps_and_untyped_signatures() {
+        let mut d = Dict::new();
+        d.set(b"Type".to_vec(), Object::name("DocTimeStamp"));
+        assert!(is_signature_dict(&d));
+
+        d.set(b"Type".to_vec(), Object::name("Annot"));
+        assert!(!is_signature_dict(&d));
+        d.set(b"Contents".to_vec(), PdfString::literal(b"synthetic".to_vec()));
+        assert!(!is_signature_dict(&d));
+        d.set(b"ByteRange".to_vec(), Object::Array(vec![Object::Int(0), Object::Int(10)]));
+        assert!(is_signature_dict(&d));
     }
 }
