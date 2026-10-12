@@ -235,3 +235,33 @@ fn pdfdoc_encoding_round_trips() {
     assert_eq!(legacy_candidates("Çok"), [vec![0xC7, b'o', b'k']]);
     assert_eq!(legacy_candidates("şifre"), [b"ifre".to_vec(), "şifre".as_bytes().to_vec()]);
 }
+
+#[test]
+fn r6_authentication_rejects_truncated_required_dictionary_fields() {
+    // Existing property tests use random /O and /U data, which almost never
+    // reaches key unwrap. Start with a *valid* R6 dictionary to exercise the
+    // inner /OE and /UE length checks after successful password authentication.
+    let valid = new(Algorithm::Aes256, "user", "owner", -1).dict().clone();
+    for len in [0usize, 1, 16, 31] {
+        let mut broken = valid.clone();
+        broken.ue.truncate(len);
+        assert!(
+            matches!(SecurityHandler::open(broken, ID, Some("user")), Err(CryptError::Malformed(_))),
+            "truncated /UE ({len}) must not authenticate"
+        );
+        let mut broken = valid.clone();
+        broken.oe.truncate(len);
+        assert!(
+            matches!(SecurityHandler::open(broken, ID, Some("owner")), Err(CryptError::Malformed(_))),
+            "truncated /OE ({len}) must not authenticate"
+        );
+    }
+    for len in [0usize, 1, 32, 47] {
+        let mut broken = valid.clone();
+        broken.u.truncate(len);
+        assert!(matches!(SecurityHandler::open(broken, ID, Some("user")), Err(CryptError::Malformed(_))));
+        let mut broken = valid.clone();
+        broken.o.truncate(len);
+        assert!(matches!(SecurityHandler::open(broken, ID, Some("owner")), Err(CryptError::Malformed(_))));
+    }
+}
