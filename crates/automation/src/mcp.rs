@@ -109,13 +109,23 @@ impl McpServer {
     /// Handle one parsed message. Notifications (no `id`) get no reply.
     pub fn handle(&mut self, msg: &Value) -> Option<Value> {
         let Some(obj) = msg.as_object() else { return Some(error(Value::Null, INVALID_REQUEST, "expected a JSON-RPC request object")) };
+        // JSON-RPC 2.0 requires this exact version. An invalid envelope is not a
+        // notification and must receive a protocol error even without an id.
+        if obj.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
+            return Some(error(Value::Null, INVALID_REQUEST, "jsonrpc must be \"2.0\""));
+        }
         let id = obj.get("id").cloned();
+        if let Some(ref id) = id
+            && !(id.is_null() || id.is_string() || id.is_number())
+        {
+            return Some(error(Value::Null, INVALID_REQUEST, "id must be a string, number or null"));
+        }
         let Some(method) = obj.get("method").and_then(Value::as_str) else {
-            // A response to something we sent (we send no requests) or garbage.
-            return id.map(|id| error(id, INVALID_REQUEST, "missing method"));
+            // Only *valid* method calls with no id are notifications.
+            return Some(error(id.unwrap_or(Value::Null), INVALID_REQUEST, "missing method"));
         };
         let params = obj.get("params").cloned().unwrap_or(Value::Null);
-        let id = id?; // notifications/initialized, notifications/cancelled, …: nothing to answer
+        let id = id?; // valid notifications/initialized, notifications/cancelled: no response
         let result = if method == "tools/call" { guarded_tool(|| self.dispatch(method, &params)) } else { self.dispatch(method, &params) };
         Some(match result {
             Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),

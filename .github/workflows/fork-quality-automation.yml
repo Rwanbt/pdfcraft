@@ -1,0 +1,69 @@
+name: Fork quality - PDF automation and MCP
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "crates/automation/**"
+      - ".github/workflows/fork-quality-automation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-automation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mcp-and-automation:
+    name: MCP wire conformance, automation tests and LLVM coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: 1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev \
+            libgl1-mesa-dev libgtk-3-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt, llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: fork-automation-mcp
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Rustfmt (entire workspace)
+        run: cargo fmt --all -- --check
+      - name: Clippy (all automation targets)
+        run: cargo clippy --locked -p pdfcraft-automation --all-targets -- -D warnings
+      - name: Repeat MCP protocol cases three times, single threaded
+        shell: bash
+        run: |
+          set -euo pipefail
+          for repeat in 1 2 3; do
+            echo "MCP conformance run ${repeat}/3"
+            cargo test --locked -p pdfcraft-automation --test mcp_protocol -- --test-threads=1
+          done
+      - name: Verify automation without MCP feature
+        run: cargo test --locked -p pdfcraft-automation --no-default-features --test hostile_args
+      - name: Instrument entire automation crate test suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p coverage
+          cargo llvm-cov -p pdfcraft-automation --locked --lcov --output-path coverage/automation.lcov
+          cargo llvm-cov report --summary-only
+      - name: Preserve automation coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdfcraft-automation-lcov
+          path: coverage/automation.lcov
+          if-no-files-found: warn
+          retention-days: 30
