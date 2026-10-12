@@ -1,42 +1,54 @@
-# PdfCraft fork quality — initial coverage baseline
+# PdfCraft fork quality — initial instrumented baseline
 
 **Recorded:** 2026-10-12 · **Repository:** `Rwanbt/pdfcraft` · **Base:** `main` at `bbbe60015c571ebfc39708ee07777b89e267122a`  
-**Work branch:** `test/fork-qa-decoder-baseline` · **Status:** UNVERIFIED / measurement pending
+**Work branch:** `test/fork-qa-decoder-baseline` · **Scoped crate status:** PARTIALLY VERIFIED · **Whole app:** UNVERIFIED
 
-## Repository reconnaissance (GitHub API, not a Cargo test run)
+## Repository reconnaissance (GitHub API)
 
-- 30 Rust crates under `crates/`, three apps under `apps/`, and `xtask`; vendor dependencies excluded.
-- 352 non-vendor `.rs` files, 85 Rust files directly under a `tests/` directory (including platform-conditional tests). This is **not** a test-count or coverage measurement.
-- Existing workflows: `ci.yml`, `freebsd.yml`, `packaging-lint.yml`, `release.yml`, `windows-arm64.yml`.
-- Existing CI declares Linux/Windows clippy and tests, WASM checking, dependency audit, plus scheduled fuzzing. Some native platform builds run in other workflows.
-- Before this branch, the fork GitHub Actions run listing returned `total_count: 0`. Existing workflow definitions are **not** proof of passing runs.
-- Upstream `storytold/pdfcraft:main` was 223 commits ahead of the fork's baseline. No sync or merge was performed.
+- 30 Rust crates under `crates/`, three apps under `apps/`, and `xtask`; vendored dependencies excluded.
+- 352 non-vendor `.rs` files; 85 Rust files directly under a `tests/` directory (including platform-conditional tests). These counts are **not** runtime test counts or coverage.
+- Workflows on `main`: `ci.yml`, `freebsd.yml`, `packaging-lint.yml`, `release.yml`, `windows-arm64.yml`.
+- Before this PR the fork returned zero Actions runs; PR #1 successfully triggered the Actions service.
+- As of first audit `storytold/pdfcraft:main` was 223 commits ahead of fork `main`; no synchronization, upstream PR or merger was performed.
 
-## Measurement
+## First measured coverage (completed run)
 
-| Scope | Lines | Functions | Branches | Collection |
+**Evidence commit:** `0721b79c91db4e24602d1290063ecccd50e7c43e`  
+**GitHub run:** https://github.com/Rwanbt/pdfcraft/actions/runs/38268331045  
+**LCOV artifact:** `pdfcraft-filters-lcov`, artifact id `11755926825`, captured 2026-10-12, Ubuntu Linux.
+
+| Scope | Lines | Functions | LLVM code regions | Branches |
 | --- | --- | --- | --- | --- |
-| `pdfcraft-filters` | Not measured | Not measured | Not measured | Pending Actions run |
-| Whole workspace | Not measured | Not measured | Not measured | Pending independent instrumentation |
-| Desktop/web UI | Not measured | Not measured | Not measured | Pending platform-specific tests |
+| `pdfcraft-filters` | **1011/1015 = 99.61%** | **124/124 = 100.00%** | **2354/2390 = 98.49%** | **Not measured** |
+| Whole workspace | Not measured | Not measured | Not measured | Not measured |
+| Desktop/web UI | Not measured | Not measured | Not measured | Not measured |
 
-There is **no defensible pre-change numeric baseline** yet. Do not treat source-file inventory or green unit tests as coverage. The scoped workflow `.github/workflows/fork-quality-filters.yml` generates a downloadable `coverage/filters.lcov` on successful execution. The 100% target is aspirational, not enforced.
+**Test evidence:** `pdfcraft-filters` ran 48 unit tests + 5 fixed-vector decoder contracts + 9 property/integration tests = **62 passed, zero failures**. The five added tests also passed in three successive separate invocations. Existing lint and format steps in the scoped workflow passed for the evidence SHA. Tests assert expected decoded bytes/errors; round-trip properties are not the only oracles.
 
-## Candidate first change
+| Source | Lines | Executed | Coverage |
+| --- | ---: | ---: | ---: |
+| `ascii85.rs` | 116 | 115 | 99.14% |
+| `asciihex.rs` | 74 | 74 | 100% |
+| `flate.rs` | 105 | 103 | 98.10% |
+| `lib.rs` | 183 | 182 | 99.45% |
+| `lzw.rs` | 223 | 223 | 100% |
+| `predictor.rs` | 229 | 229 | 100% |
+| `runlength.rs` | 85 | 85 | 100% |
 
-Five deterministic, fixed-byte decoder contracts in `crates/filters/tests/decoder_contracts.rs` exercise:
-1. Output-size limit through a *second* expanding filter, including exact boundary.
-2. Strict failure versus tolerant partial output for truncated RLE.
-3. Partial output through two corrupt filter stages.
-4. Limit errors that must never be downgraded to recoverable corruption.
-5. Zero-byte output limit.
+### Exactly four uncovered lines on the first measurement
 
-These are **added**, not marked passed. Current environment cannot execute Cargo; GitHub Actions is the validation path. Run `cargo test --locked -p pdfcraft-filters --test decoder_contracts` and read the run for the exact PR head SHA.
+1. `ascii85.rs:55`: overflow rejection of a short final ASCII85 group. **Follow-up regression added** on this branch; require a new Actions run before claiming its coverage.
+2. `flate.rs:44`: defensive output-capacity allocation guard, likely superseded by earlier output-length checks. Verify its reachability by code/control-flow analysis before excluding it.
+3. `flate.rs:146`: intentionally unexecuted `panic!` failure arm inside a `#[test]` assertion. Not a production path.
+4. `lib.rs:179`: defensive unsupported-filter fallback after `run()` pre-validates and rejects every nondecodable filter. Not reachable through the public decoder API under current dispatch, but preserve it as defense in depth.
 
-## Next baseline steps
+**Important:** the report is an instrumented crate measurement, not workspace coverage. Region coverage is not the same as branch coverage. The first numeric baseline is **after** adding the initial tests; a pre-change numeric baseline was not obtained. Do not misstate it as a before-versus-after improvement. The next run will validate the additional ASCII85 vector.
 
-1. Obtain an actual green/red GitHub Actions result for the exact PR commit; investigate any no-run state.
-2. Download `filters.lcov`, derive a per-file line baseline and list uncovered functions/branches separately.
-3. Instrument isolated crates in phases, then whole workspace with compatible features; document system limitations.
-4. Count collected tests from `cargo test --workspace -- --list` (account for separate binaries), not filenames.
-5. Set non-regression gates only **after** a measured, reviewable baseline exists.
+## Priority backlog
+
+1. Check the exact latest PR head and investigate Linux/Windows/WASM/packaging job failures (if any).
+2. Obtain a fresh LCOV after the new ASCII85 test, compare line hits, justify truly unreachable paths.
+3. Measure the remaining crates independently and together with compatible features, without merging incompatible percentages.
+4. Collect workspace test counts via the actual test runner, rather than the 85 `tests/` filenames.
+5. Add independent third-party interoperability, actual desktop/browser E2E and installation/packaging verification.
+6. Set non-regression gates based on real baselines, adding thresholds progressively rather than declaring 100% without evidence.

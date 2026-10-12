@@ -67,3 +67,15 @@ fn zero_limit_allows_only_empty_decoded_output() {
     assert!(matches!(decode(&chain, b"00>", 0), Err(FilterError::LimitExceeded(0))));
     assert!(matches!(decode_tolerant(&chain, b"00>", 0), Err(FilterError::LimitExceeded(0))));
 }
+
+#[test]
+fn overflowing_ascii85_tail_is_corrupt_and_tolerant_mode_keeps_only_complete_groups() {
+    // PDF ASCII85: 'z' is a complete four-byte zero group. 'uuuu' is a
+    // four-character tail; padding it with 'u' yields 85^5 - 1, which
+    // exceeds the maximum representable 32-bit decoded word.
+    let chain = [(Filter::Ascii85, Params::default())];
+    let encoded = b"zuuuu~>";
+    let err = decode(&chain, encoded, 4).unwrap_err();
+    assert!(err.to_string().contains("final group exceeds 2^32"), "{err}");
+    assert_eq!(decode_tolerant(&chain, encoded, 4).unwrap(), (vec![0; 4], true));
+}

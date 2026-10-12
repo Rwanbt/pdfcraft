@@ -5,10 +5,10 @@ Status `UNVERIFIED` means code or tests may exist, but no passing run on this fo
 
 | ID | Area / expected contract | Existing evidence in tree | Added regression / verification | Status |
 | --- | --- | --- | --- | --- |
-| PDF-FLT-001 | ASCIIHex decoded bytes / malformed input | `crates/filters/src/asciihex.rs` unit tests | Fixed-byte zero bound and corruption cases | UNVERIFIED |
-| PDF-FLT-002 | RunLength exact output bounds, truncation and EOD | `crates/filters/src/runlength.rs` unit tests | Chained expansion and truncated-literal vectors | UNVERIFIED |
-| PDF-FLT-003 | Strict and tolerant chain result semantics | `crates/filters/src/lib.rs`; property tests | Two-stage partial-recovery vector | UNVERIFIED |
-| PDF-FLT-004 | Flate/LZW and predictors resist malformed inputs | `crates/filters/tests/proptests.rs` | Separate instrumentation and further independent corpus oracles needed | UNVERIFIED |
+| PDF-FLT-001 | ASCIIHex decoded bytes / malformed input | `crates/filters/src/asciihex.rs` unit tests | Fixed-byte zero bound and corruption cases; [run 38268331045](https://github.com/Rwanbt/pdfcraft/actions/runs/38268331045) | PARTIAL |
+| PDF-FLT-002 | RunLength exact output bounds, truncation and EOD | `crates/filters/src/runlength.rs` unit tests | Chained expansion and truncated-literal vectors; [run 38268331045](https://github.com/Rwanbt/pdfcraft/actions/runs/38268331045) | PARTIAL |
+| PDF-FLT-003 | Strict and tolerant chain result semantics | `crates/filters/src/lib.rs`; property tests | Two-stage partial-recovery vector; [run 38268331045](https://github.com/Rwanbt/pdfcraft/actions/runs/38268331045) | PARTIAL |
+| PDF-FLT-004 | Flate/LZW and predictors resist malformed inputs | `crates/filters/tests/proptests.rs` | Property and unit tests passed in [run 38268331045](https://github.com/Rwanbt/pdfcraft/actions/runs/38268331045), independent corpus still pending | PARTIAL |
 | PDF-COS-001 | Object graph and incremental/full persistence fidelity | `crates/cos/tests/` | Read/write oracle and file corruption matrix pending | UNVERIFIED |
 | PDF-SEC-001 | Every automation path honors `--root` | `crates/automation/tests/hostile_args.rs`; CLI `run_root.rs` | CLI and MCP cross-platform regression run needed | UNVERIFIED |
 | PDF-ENC-001 | PDFs protected here open in independent readers | Existing encryption tests; upstream issue #774 | Independent encrypted-PDF interoperability acceptance test missing | UNVERIFIED |

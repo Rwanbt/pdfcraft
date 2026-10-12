@@ -33,8 +33,16 @@ cargo xtask wasm
 
 Desktop, web, Windows, macOS, FreeBSD, perf and packaging need their own applicable runtime and runner evidence. Static WASM checking is not browser E2E. Native unit tests are not an installed app smoke test.
 
-## Actual executions at document creation
+## First confirmed GitHub Actions execution
 
-**None confirmed** for this fork, including this branch. The execution environment reading the repo did not have `cargo` or network access for cloning. GitHub Actions is the planned runner; if it does not start, this remains BLOCKED rather than passed.
+**Date:** 2026-10-12 · **Evidence SHA:** `0721b79c91db4e24602d1290063ecccd50e7c43e`
 
-Update this document with `run_id`, SHA, platform, date, commands, test runner counts and coverage artifact only **after** jobs have run.
+- **Run:** https://github.com/Rwanbt/pdfcraft/actions/runs/38268331045 — scoped `pdfcraft-filters` quality job, Linux Ubuntu, **success**.
+- Formatting and `cargo clippy --locked -p pdfcraft-filters --all-targets -- -D warnings`: **passed**.
+- The five fixed-byte contracts: **5 passed, 0 failed**, repeated **3 times** with the same assertions.
+- Instrumented tests: **48 unit + 5 decoder contracts + 9 property/integration = 62 passed, 0 failed**.
+- Artifact: `pdfcraft-filters-lcov` (GitHub id `11755926825`); line coverage **99.61%**, function coverage **100.00%**, LLVM regions **98.49%**, branch coverage **not measured**. Exact gaps in `TEST-COVERAGE-BASELINE.md`.
+
+A subsequent fixed-vector ASCII85 overflow regression has been added. Its execution and resulting coverage must be checked at the newer head SHA before promoting it to verified. Main cross-platform CI and packaging must be checked separately. Neither a cargo fmt pass nor a crate-specific test proves full application readiness.
+
+The current ChatGPT container cannot run Cargo locally; these conclusions come from actual GitHub Actions job logs and LCOV, not a simulated runner.
