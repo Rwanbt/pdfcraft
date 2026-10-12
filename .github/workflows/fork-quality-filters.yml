@@ -1,0 +1,66 @@
+# Fork-only instrumentation for the standalone PDF stream filter crate.
+# This complements the existing cross-platform CI without claiming workspace coverage.
+name: Fork quality - PDF filters
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "crates/filters/**"
+      - ".github/workflows/fork-quality-filters.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-quality-filters-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  decoder-contracts-and-coverage:
+    name: Decoder contracts and instrumented coverage (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt, llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: pdf-filters-coverage
+      - uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Formatting
+        run: cargo fmt --all -- --check
+
+      - name: Filter crate lints
+        run: cargo clippy --locked -p pdfcraft-filters --all-targets -- -D warnings
+
+      - name: Repeat fixed-byte contracts three times
+        shell: bash
+        run: |
+          set -euo pipefail
+          for iteration in 1 2 3; do
+            echo "Decoder contract run ${iteration}/3"
+            cargo test --locked -p pdfcraft-filters --test decoder_contracts -- --test-threads=1
+          done
+
+      - name: Instrument PDF filter tests
+        shell: bash
+        run: |
+          mkdir -p coverage
+          cargo llvm-cov -p pdfcraft-filters --locked --lcov --output-path coverage/filters.lcov
+          cargo llvm-cov report --summary-only
+
+      - name: Preserve raw measured filter coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdfcraft-filters-lcov
+          path: coverage/filters.lcov
+          if-no-files-found: warn
+          retention-days: 30
