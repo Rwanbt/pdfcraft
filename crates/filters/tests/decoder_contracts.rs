@@ -6,10 +6,7 @@
 use pdfcraft_filters::{Filter, FilterError, Params, decode, decode_tolerant};
 
 fn hex_then_runlength() -> [(Filter, Params); 2] {
-    [
-        (Filter::AsciiHex, Params::default()),
-        (Filter::RunLength, Params::default()),
-    ]
+    [(Filter::AsciiHex, Params::default()), (Filter::RunLength, Params::default())]
 }
 
 #[test]
@@ -38,10 +35,7 @@ fn a_truncated_literal_run_is_an_error_in_strict_mode() {
     // four literal bytes, but only two exist.
     let chain = hex_then_runlength();
     let encoded = b"034142>";
-    assert!(matches!(
-        decode(&chain, encoded, 3),
-        Err(FilterError::Corrupt { .. })
-    ));
+    assert!(matches!(decode(&chain, encoded, 3), Err(FilterError::Corrupt { .. })));
     assert_eq!(decode_tolerant(&chain, encoded, 3).unwrap(), (b"AB".to_vec(), true));
 }
 
@@ -52,10 +46,7 @@ fn two_corrupt_stages_preserve_only_the_valid_partial_output() {
     // truncated second run. The partial result must not contain 'B'.
     let chain = hex_then_runlength();
     let encoded = b"01410042GG";
-    assert!(matches!(
-        decode(&chain, encoded, 100),
-        Err(FilterError::Corrupt { .. })
-    ));
+    assert!(matches!(decode(&chain, encoded, 100), Err(FilterError::Corrupt { .. })));
     assert_eq!(decode_tolerant(&chain, encoded, 100).unwrap(), (vec![b'A', 0], true));
 }
 
@@ -64,10 +55,7 @@ fn a_limit_violation_is_not_treated_as_recoverable_corruption() {
     let chain = [(Filter::AsciiHex, Params::default())];
     // A corrupt trailing character must not turn a prior limit error into success.
     for encoded in [&b"41424344GG"[..], &b"41424344>"[..]] {
-        assert!(matches!(
-            decode_tolerant(&chain, encoded, 3),
-            Err(FilterError::LimitExceeded(3))
-        ));
+        assert!(matches!(decode_tolerant(&chain, encoded, 3), Err(FilterError::LimitExceeded(3))));
     }
 }
 
@@ -76,12 +64,6 @@ fn zero_limit_allows_only_empty_decoded_output() {
     let chain = [(Filter::AsciiHex, Params::default())];
     assert_eq!(decode(&chain, b">", 0).unwrap(), b"");
     assert_eq!(decode_tolerant(&chain, b">", 0).unwrap(), (vec![], false));
-    assert!(matches!(
-        decode(&chain, b"00>", 0),
-        Err(FilterError::LimitExceeded(0))
-    ));
-    assert!(matches!(
-        decode_tolerant(&chain, b"00>", 0),
-        Err(FilterError::LimitExceeded(0))
-    ));
+    assert!(matches!(decode(&chain, b"00>", 0), Err(FilterError::LimitExceeded(0))));
+    assert!(matches!(decode_tolerant(&chain, b"00>", 0), Err(FilterError::LimitExceeded(0))));
 }
