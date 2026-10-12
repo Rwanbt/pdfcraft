@@ -34,6 +34,10 @@ fn fixture() -> Vec<u8> {
 }
 
 fn protect(alg: Algorithm, user: &str, owner: &str, permissions: i32) -> Vec<u8> {
+    protect_with_options(alg, user, owner, permissions, true)
+}
+
+fn protect_with_options(alg: Algorithm, user: &str, owner: &str, permissions: i32, object_streams: bool) -> Vec<u8> {
     let mut doc = Document::open(Arc::new(fixture())).unwrap();
     doc.set_encryption(&NewEncryption {
         algorithm: alg,
@@ -44,7 +48,7 @@ fn protect(alg: Algorithm, user: &str, owner: &str, permissions: i32) -> Vec<u8>
         seed: [9; 32],
     })
     .unwrap();
-    write_full(&doc, &SaveOptions::default()).unwrap()
+    write_full(&doc, &SaveOptions { object_streams, ..SaveOptions::default() }).unwrap()
 }
 
 fn content(doc: &Document) -> String {
@@ -172,25 +176,87 @@ fn unencrypted_metadata_is_left_readable() {
     let _ = ObjRef::new(1, 0);
 }
 
-/// Second independent oracle when qpdf is installed: it must accept both passwords, identify
+#[test]
+fn encrypted_catalog_and_encrypt_dictionary_are_never_packed() {
+    // Independent from the writer's packing choices: parse the emitted xref.
+    // Acrobat rejected encrypted PDFs if /Root was embedded in an /ObjStm (#774).
+    for alg in ALL {
+        for object_streams in [false, true] {
+            let bytes = Arc::new(protect_with_options(alg, "user", "owner", -1, object_streams));
+            let back = Document::open_with_password(bytes.clone(), Some("user")).unwrap();
+            let root = back.root().unwrap();
+            let encrypt = back.trailer().reference(b"Encrypt").unwrap();
+            assert!(
+                matches!(back.xref_entry(root.num), Some(pdfcraft_cos::XrefEntry::InFile { .. })),
+                "{alg:?}/{object_streams}: encrypted catalog must be standalone"
+            );
+            assert!(
+                matches!(back.xref_entry(encrypt.num), Some(pdfcraft_cos::XrefEntry::InFile { .. })),
+                "{alg:?}/{object_streams}: /Encrypt must be standalone"
+            );
+            let catalog = back.get(root);
+            assert_eq!(catalog.as_dict().unwrap().name(b"Type"), Some(&b"Catalog"[..]));
+            if object_streams {
+                assert!(
+                    back.object_numbers().into_iter().any(|n| matches!(back.xref_entry(n), Some(pdfcraft_cos::XrefEntry::InStream { .. }))),
+                    "{alg:?}: test must exercise a packed object too"
+                );
+            }
+            assert_eq!(content(&back), SECRET, "{alg:?}/{object_streams}");
+        }
+    }
+}
+
+#[test]
+fn full_encrypted_saves_are_byte_identical_with_a_fixed_seed() {
+    // Reproducible output is required for deterministic comparisons and release verification.
+    for alg in ALL {
+        for object_streams in [false, true] {
+            let original = Document::open(Arc::new(fixture())).unwrap();
+            let mut doc = original.clone();
+            doc.set_encryption(&NewEncryption {
+                algorithm: alg,
+                user_password: "user",
+                owner_password: "owner",
+                permissions: -1,
+                encrypt_metadata: true,
+                seed: [9; 32],
+            })
+            .unwrap();
+            let options = SaveOptions { object_streams, mod_date: Some("D:20261012000000Z".into()), ..SaveOptions::default() };
+            let first = write_full(&doc, &options).unwrap();
+            assert_eq!(first, write_full(&doc, &options).unwrap(), "{alg:?}/{object_streams}");
+            assert!(!first.windows(SECRET.len()).any(|w| w == SECRET.as_bytes()), "{alg:?}/{object_streams}: plaintext leaked");
+        }
+    }
+}
+
+/// Second independent oracle: it must accept both passwords, identify
 /// the owner password, and find no structural errors.
+///
+/// On normal developer machines the test may skip if qpdf is unavailable, but CI sets
+/// PDFCRAFT_REQUIRE_QPDF=1 and installs qpdf, so absence is a hard failure there.
 #[test]
 fn qpdf_agrees() {
-    if std::process::Command::new("qpdf").arg("--version").output().is_err() {
-        eprintln!("qpdf not installed; skipping");
+    let installed = std::process::Command::new("qpdf").arg("--version").output().is_ok_and(|out| out.status.success());
+    if !installed {
+        assert!(std::env::var_os("PDFCRAFT_REQUIRE_QPDF").is_none(), "CI requires qpdf; interoperability must not silently skip");
+        eprintln!("qpdf not installed; optional developer-only test skipped");
         return;
     }
     let dir = std::env::temp_dir().join(format!("pdfcraft-enc-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     for alg in ALL {
-        let path = dir.join(format!("{alg:?}.pdf"));
-        std::fs::write(&path, protect(alg, "user", "owner", -1)).unwrap();
-        for (pw, expect) in [("user", "user password"), ("owner", "owner password")] {
-            let out = std::process::Command::new("qpdf").arg(format!("--password={pw}")).arg("--show-encryption").arg(&path).output().unwrap();
-            let text = String::from_utf8_lossy(&out.stdout);
-            assert!(text.contains(&format!("Supplied password is {expect}")), "{alg:?}/{pw}: {text}");
-            let check = std::process::Command::new("qpdf").arg(format!("--password={pw}")).arg("--check").arg(&path).output().unwrap();
-            assert!(check.status.success(), "{alg:?}/{pw}: {}", String::from_utf8_lossy(&check.stdout));
+        for object_streams in [false, true] {
+            let path = dir.join(format!("{alg:?}-{object_streams}.pdf"));
+            std::fs::write(&path, protect_with_options(alg, "user", "owner", -1, object_streams)).unwrap();
+            for (pw, expect) in [("user", "user password"), ("owner", "owner password")] {
+                let out = std::process::Command::new("qpdf").arg(format!("--password={pw}")).arg("--show-encryption").arg(&path).output().unwrap();
+                let text = String::from_utf8_lossy(&out.stdout);
+                assert!(out.status.success() && text.contains(&format!("Supplied password is {expect}")), "{alg:?}/{object_streams}/{pw}: {text}");
+                let check = std::process::Command::new("qpdf").arg(format!("--password={pw}")).arg("--check").arg(&path).output().unwrap();
+                assert!(check.status.success(), "{alg:?}/{object_streams}/{pw}: {}", String::from_utf8_lossy(&check.stdout));
+            }
         }
     }
     let _ = std::fs::remove_dir_all(dir);
