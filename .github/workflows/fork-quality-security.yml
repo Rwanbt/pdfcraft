@@ -1,0 +1,70 @@
+# Fork-only encryption and PDF object serialization interoperability gates.
+# qpdf is a required external oracle here, never an optional/skipped check.
+name: Fork quality - PDF security core
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "crates/crypt/**"
+      - "crates/cos/**"
+      - ".github/workflows/fork-quality-security.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security-core:
+    name: Encrypted PDF interoperability and deterministic coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: 1
+      PDFCRAFT_REQUIRE_QPDF: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install independent PDF validator
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qpdf
+          qpdf --version
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt, llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: pdf-security-core
+      - uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Check workspace formatting
+        run: cargo fmt --all -- --check
+      - name: Check crypt and COS clippy
+        run: cargo clippy --locked -p pdfcraft-crypt -p pdfcraft-cos --all-targets -- -D warnings
+      - name: Security handler tests
+        run: cargo test --locked -p pdfcraft-crypt
+      - name: Cross-reader encrypted-PDF acceptance
+        run: cargo test --locked -p pdfcraft-cos --test encryption -- --test-threads=1
+      - name: Measure crypt and COS source coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p coverage
+          cargo llvm-cov --locked -p pdfcraft-crypt -p pdfcraft-cos --lcov --output-path coverage/crypt-cos.lcov
+          cargo llvm-cov report --summary-only
+
+      - name: Save independent coverage evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdfcraft-security-core-lcov
+          path: coverage/crypt-cos.lcov
+          if-no-files-found: warn
+          retention-days: 30
